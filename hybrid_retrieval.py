@@ -11,13 +11,17 @@ from sentence_transformers import SentenceTransformer
 
 print("Loading indexes...")
 
+# Load BM25 index
 with open("bm25_index.pkl", "rb") as f:
     bm25 = pickle.load(f)
 
+# Load FAISS index
 faiss_index = faiss.read_index("faiss_index.bin")
 
+# Load ticket data
 df = pd.read_pickle("ticket_data.pkl")
 
+# Load same BGE-M3 model used for creating embeddings
 model = SentenceTransformer("BAAI/bge-m3")
 
 print("All indexes and model loaded successfully!")
@@ -28,7 +32,7 @@ print("Total tickets:", len(df))
 # 2. Hybrid Search
 # -----------------------------------------
 
-def hybrid_search(query, top_k=5):
+def hybrid_search(query, top_k=10):
 
     # =====================================
     # BM25 SEARCH
@@ -38,7 +42,7 @@ def hybrid_search(query, top_k=5):
 
     bm25_scores = bm25.get_scores(tokenized_query)
 
-    # Get more candidates
+    # Get top 20 BM25 candidates
     bm25_candidates = np.argsort(bm25_scores)[::-1][:20]
 
 
@@ -51,8 +55,10 @@ def hybrid_search(query, top_k=5):
         convert_to_numpy=True
     ).astype("float32")
 
+    # Normalize query embedding
     faiss.normalize_L2(query_embedding)
 
+    # Get top 20 vector-search candidates
     faiss_scores, faiss_indices = faiss_index.search(
         query_embedding,
         20
@@ -66,19 +72,23 @@ def hybrid_search(query, top_k=5):
     bm25_selected_scores = bm25_scores[bm25_candidates]
 
     if bm25_selected_scores.max() > 0:
+
         bm25_normalized = (
             bm25_selected_scores /
             bm25_selected_scores.max()
         )
+
     else:
+
         bm25_normalized = bm25_selected_scores
 
 
     # =====================================
-    # CREATE SCORE DICTIONARY
+    # CREATE HYBRID SCORE
     # =====================================
 
     hybrid_scores = {}
+
 
     # BM25 contribution
     for i, index in enumerate(bm25_candidates):
@@ -96,7 +106,10 @@ def hybrid_search(query, top_k=5):
         vector_score = faiss_scores[0][i]
 
         if faiss_max > 0:
-            vector_score = vector_score / faiss_max
+
+            vector_score = (
+                vector_score / faiss_max
+            )
 
         hybrid_scores[index] = (
             hybrid_scores.get(index, 0)
@@ -116,14 +129,15 @@ def hybrid_search(query, top_k=5):
 
 
     # =====================================
-    # DISPLAY RESULTS
+    # DISPLAY TOP 10 RESULTS
     # =====================================
 
     print("\n" + "=" * 70)
     print("QUERY:", query)
     print("=" * 70)
 
-    print("\nTop Hybrid Retrieval Results:\n")
+    print("\nTop 10 Hybrid Retrieval Results:\n")
+
 
     for rank, (index, score) in enumerate(
         ranked_results,
@@ -135,10 +149,25 @@ def hybrid_search(query, top_k=5):
         print(f"Result #{rank}")
         print("-" * 60)
 
-        print("Hybrid Score:", round(score, 4))
-        print("Ticket ID:", ticket["ID"])
-        print("Classification:", ticket["Classification"])
-        print("Group:", ticket["Group"])
+        print(
+            "Hybrid Score:",
+            round(score, 4)
+        )
+
+        print(
+            "Ticket ID:",
+            ticket["ID"]
+        )
+
+        print(
+            "Classification:",
+            ticket["Classification"]
+        )
+
+        print(
+            "Group:",
+            ticket["Group"]
+        )
 
         print("\nDescription:")
         print(ticket["Description"])
